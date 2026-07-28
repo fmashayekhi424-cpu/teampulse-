@@ -5,6 +5,12 @@
 
 alter table schedule_entries add column period text;
 
+-- Must drop the old (user_id, date) constraint before inserting the
+-- "afternoon" duplicates — otherwise a duplicate row for a date that
+-- already has an entry collides with it, since period doesn't factor
+-- into uniqueness until the new constraint below replaces it.
+alter table schedule_entries drop constraint schedule_entries_user_id_date_key;
+
 insert into schedule_entries (user_id, date, status_type_id, comment, period)
 select user_id, date, status_type_id, comment, 'afternoon'
 from schedule_entries
@@ -16,6 +22,5 @@ alter table schedule_entries alter column period set not null;
 alter table schedule_entries add constraint schedule_entries_period_check
   check (period in ('morning', 'afternoon'));
 
-alter table schedule_entries drop constraint schedule_entries_user_id_date_key;
 alter table schedule_entries add constraint schedule_entries_user_date_period_key
   unique (user_id, date, period);
