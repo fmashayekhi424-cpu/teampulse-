@@ -2,6 +2,7 @@
 
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 
 export async function signOut() {
   const supabase = await createClient();
@@ -41,6 +42,13 @@ function describeError(err: unknown): string {
  * straight away. A brand-new email additionally needs the lab's shared
  * invite passcode (checked server-side, never shipped to the client) plus a
  * name, so account creation is gated to people who were actually invited.
+ *
+ * New accounts are created via the Admin API (pre-confirmed, no email sent)
+ * rather than letting Supabase's own signInWithOtp(shouldCreateUser: true)
+ * create them — that built-in path returns a 500 ("Error sending magic link
+ * email") for this project for reasons that don't show up in any log we have
+ * access to. Creating the user first and then sending the code through the
+ * ordinary existing-user path (which works reliably) sidesteps it entirely.
  */
 export async function requestLoginCode(input: {
   email: string;
@@ -67,15 +75,35 @@ export async function requestLoginCode(input: {
       return { status: "invalid_passcode" };
     }
 
-    const { error: createError } = await supabase.auth.signInWithOtp({
+    const admin = createAdminClient();
+    const { error: createError } = await admin.auth.admin.createUser({
       email,
-      options: { shouldCreateUser: true, data: { full_name: fullName } },
+      email_confirm: true,
+      user_metadata: { full_name: fullName },
     });
 
-    if (createError) {
+    // "already been registered" can happen on a double-submit or a retry
+    // after a partial earlier failure — treat it as success and just send
+    // the code, same as any other existing user.
+    const alreadyExists =
+      createError &&
+      /already.*regista?ered|already exists/i.test(createError.message ?? "");
+
+    if (createError && !alreadyExists) {
       const detail = describeError(createError);
-      console.error("requestLoginCode: create failed —", detail);
+      console.error("requestLoginCode: admin createUser failed —", detail);
       return { status: "error", message: `Create failed: ${detail}` };
+    }
+
+    const { error: sendError } = await supabase.auth.signInWithOtp({
+      email,
+      options: { shouldCreateUser: false },
+    });
+
+    if (sendError) {
+      const detail = describeError(sendError);
+      console.error("requestLoginCode: send after create failed —", detail);
+      return { status: "error", message: `Send failed: ${detail}` };
     }
 
     return { status: "sent" };
