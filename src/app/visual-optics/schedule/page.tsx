@@ -58,6 +58,7 @@ export default async function SchedulePage({
       </div>
 
       <MonthCalendar
+        key={monthKey}
         weeks={weeks}
         schedule={schedule}
         statusTypes={statusTypes}

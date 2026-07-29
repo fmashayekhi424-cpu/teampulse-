@@ -2,7 +2,6 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { toast } from "sonner";
 import { setSchedule } from "@/lib/actions/schedule";
 import { isNaturalDefault } from "@/lib/schedule-defaults";
 import { toISODate } from "@/lib/date";
@@ -37,8 +36,6 @@ export function SetTodayButton({ statusTypes }: { statusTypes: StatusType[] }) {
         period,
         statusTypeId: isNaturalDefault(status, iso) ? null : status.id,
       });
-      const when = period === "both" ? "Today" : `This ${period}`;
-      toast.success(`${when} set to ${status.label}`);
       router.refresh();
     });
     setOpen(false);
