@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { setSchedule } from "@/lib/actions/schedule";
 import { isNaturalDefault, findDefaultStatus } from "@/lib/schedule-defaults";
@@ -27,12 +28,22 @@ export function MonthCalendar({
   todayISO: string;
   currentMonthLabel: string; // used to dim days outside the displayed month
 }) {
+  const router = useRouter();
   const [, startTransition] = useTransition();
   const [localSchedule, setLocalSchedule] = useState(schedule);
   const [selection, setSelection] = useState<Set<string>>(new Set());
   const [anchor, setAnchor] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
   const [lastAction, setLastAction] = useState<LastAction | null>(null);
+
+  // Safety net: reconcile with the server's data whenever it changes (e.g.
+  // after router.refresh() below completes). The optimistic update already
+  // shows the change instantly, so this is just quietly correcting drift,
+  // not something the user waits on.
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional: resets the editable local copy whenever the canonical server value changes
+    setLocalSchedule(schedule);
+  }, [schedule]);
 
   const flatDays = useMemo(() => weeks.flat(), [weeks]);
 
@@ -116,6 +127,7 @@ export function MonthCalendar({
     startTransition(async () => {
       try {
         await mutate();
+        router.refresh();
       } catch {
         restoreSnapshot(previous);
       }
@@ -190,6 +202,7 @@ export function MonthCalendar({
           });
         }
       }
+      router.refresh();
     });
   }
 
