@@ -54,13 +54,18 @@ export function MonthCalendar({
     if (dragging && anchor) selectRange(anchor, date);
   }
 
+  // A plain single tap (no drag) is handled entirely by the per-half
+  // popovers, so it shouldn't leave a lingering whole-day selection behind —
+  // only an actual multi-day drag should surface the selection bar.
+  function endDrag() {
+    setDragging(false);
+    setSelection((prev) => (prev.size <= 1 ? new Set() : prev));
+  }
+
   // Mouse drag.
   useEffect(() => {
-    function stop() {
-      setDragging(false);
-    }
-    window.addEventListener("mouseup", stop);
-    return () => window.removeEventListener("mouseup", stop);
+    window.addEventListener("mouseup", endDrag);
+    return () => window.removeEventListener("mouseup", endDrag);
   }, []);
 
   // Touch drag — mouseenter never fires during a touch gesture, so instead
@@ -77,14 +82,11 @@ export function MonthCalendar({
         selectRange(anchor, date);
       }
     }
-    function stop() {
-      setDragging(false);
-    }
     window.addEventListener("touchmove", handleTouchMove, { passive: false });
-    window.addEventListener("touchend", stop);
+    window.addEventListener("touchend", endDrag);
     return () => {
       window.removeEventListener("touchmove", handleTouchMove);
-      window.removeEventListener("touchend", stop);
+      window.removeEventListener("touchend", endDrag);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dragging, anchor]);
