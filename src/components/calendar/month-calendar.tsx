@@ -302,12 +302,24 @@ function DayCell({
   const dayNumber = Number(date.slice(8, 10));
   const defaultStatus = findDefaultStatus(statusTypes, date);
 
+  // Taps inside a half-slot (data-no-drag) shouldn't also start a whole-day
+  // drag-select — checked here on the parent rather than stopPropagation on
+  // the half's own button, which was interfering with the popover library's
+  // ability to register the tap at all on touch devices.
+  function isInHalfSlot(e: { target: EventTarget | null }) {
+    return e.target instanceof Element && e.target.closest("[data-no-drag]") !== null;
+  }
+
   return (
     <div
       data-date={date}
-      onMouseDown={onStart}
+      onMouseDown={(e) => {
+        if (!isInHalfSlot(e)) onStart();
+      }}
       onMouseEnter={onEnter}
-      onTouchStart={onStart}
+      onTouchStart={(e) => {
+        if (!isInHalfSlot(e)) onStart();
+      }}
       className={cn(
         "flex min-h-[76px] touch-manipulation flex-col overflow-hidden rounded-md ring-inset transition-colors sm:min-h-[88px]",
         !inCurrentMonth && "opacity-40",
@@ -368,8 +380,7 @@ function HalfSlot({
         render={
           <button
             type="button"
-            onMouseDown={(e) => e.stopPropagation()}
-            onTouchStart={(e) => e.stopPropagation()}
+            data-no-drag
             className="flex min-h-[34px] flex-1 touch-manipulation items-center justify-center text-lg leading-none active:brightness-90 sm:min-h-[40px]"
             style={{ backgroundColor: status ? `${status.color}26` : undefined }}
             title={`${period === "morning" ? "Morning" : "Afternoon"}: ${status?.label ?? ""}${half?.comment ? ` — ${half.comment}` : ""}`}
