@@ -3,6 +3,7 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { sendEmail } from "@/lib/email";
 
 export async function signOut() {
   const supabase = await createClient();
@@ -39,16 +40,20 @@ function describeError(err: unknown): string {
 
 /**
  * Existing teammates just need their email — this sends the sign-in code
- * straight away. A brand-new email additionally needs the lab's shared
- * invite passcode (checked server-side, never shipped to the client) plus a
- * name, so account creation is gated to people who were actually invited.
+ * straight away, via Supabase's own signInWithOtp (reliable for accounts
+ * that have received at least one email before).
  *
- * New accounts are created via the Admin API (pre-confirmed, no email sent)
- * rather than letting Supabase's own signInWithOtp(shouldCreateUser: true)
- * create them — that built-in path returns a 500 ("Error sending magic link
- * email") for this project for reasons that don't show up in any log we have
- * access to. Creating the user first and then sending the code through the
- * ordinary existing-user path (which works reliably) sidesteps it entirely.
+ * A brand-new email additionally needs the lab's shared invite passcode
+ * (checked server-side, never shipped to the client) plus a name.
+ *
+ * New accounts are created via the Admin API (pre-confirmed, no email sent),
+ * and their login code is generated via generateLink + emailed through
+ * Resend directly — NOT via signInWithOtp. Confirmed via direct API testing
+ * that Supabase's own send-on-create path 500s ("Error sending magic link
+ * email") for any account that has never received an email before, whenever
+ * custom SMTP is enabled; disabling custom SMTP makes it work, so this is a
+ * platform-level bug in Supabase's SMTP integration, not something fixable
+ * from our side. Sending the first email ourselves sidesteps it entirely.
  */
 export async function requestLoginCode(input: {
   email: string;
@@ -95,16 +100,22 @@ export async function requestLoginCode(input: {
       return { status: "error", message: `Create failed: ${detail}` };
     }
 
-    const { error: sendError } = await supabase.auth.signInWithOtp({
+    const { data: linkData, error: linkError } = await admin.auth.admin.generateLink({
+      type: "magiclink",
       email,
-      options: { shouldCreateUser: false },
     });
 
-    if (sendError) {
-      const detail = describeError(sendError);
-      console.error("requestLoginCode: send after create failed —", detail);
-      return { status: "error", message: `Send failed: ${detail}` };
+    if (linkError || !linkData) {
+      const detail = describeError(linkError);
+      console.error("requestLoginCode: generateLink failed —", detail);
+      return { status: "error", message: `Code generation failed: ${detail}` };
     }
+
+    await sendEmail({
+      to: email,
+      subject: "Your TeamPulse sign-in code",
+      html: `<p>Enter this code to finish joining Visual Optics:</p><p style="font-size:24px;font-weight:bold;letter-spacing:2px;">${linkData.properties.email_otp}</p>`,
+    });
 
     return { status: "sent" };
   } catch (err) {
