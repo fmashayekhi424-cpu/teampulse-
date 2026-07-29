@@ -1,6 +1,5 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import type { Period } from "@/lib/data/schedule";
 
@@ -44,6 +43,9 @@ export async function setSchedule(input: SetScheduleInput) {
     if (error) throw error;
   }
 
-  revalidatePath("/visual-optics");
-  revalidatePath("/visual-optics/schedule");
+  // No revalidatePath here on purpose: My Schedule already updates itself
+  // optimistically (see MonthCalendar), and Team Overview refreshes itself
+  // independently via its own Realtime subscription. Triggering a Next.js
+  // page refresh on top of either was causing a double-render that
+  // disrupted the calendar's touch handling on the very next tap.
 }
