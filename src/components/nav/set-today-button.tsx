@@ -27,6 +27,9 @@ export function SetTodayButton({ statusTypes }: { statusTypes: StatusType[] }) {
   const [pending, startTransition] = useTransition();
   const [open, setOpen] = useState(false);
   const [period, setPeriod] = useState<Period | "both">("both");
+  // "Day Off" is the automatic weekend/holiday default, not something to
+  // pick manually here.
+  const pickableStatusTypes = statusTypes.filter((s) => s.key !== "off");
 
   function handleSelect(status: StatusType) {
     const iso = toISODate(new Date());
@@ -71,7 +74,7 @@ export function SetTodayButton({ statusTypes }: { statusTypes: StatusType[] }) {
             </button>
           ))}
         </div>
-        {statusTypes.map((status) => (
+        {pickableStatusTypes.map((status) => (
           <DropdownMenuItem key={status.id} onClick={() => handleSelect(status)}>
             <span>{status.icon}</span> {status.label}
           </DropdownMenuItem>

@@ -46,6 +46,14 @@ export function MonthCalendar({
 
   const flatDays = useMemo(() => weeks.flat(), [weeks]);
 
+  // "Day Off" is the automatic weekend/holiday default, not something you
+  // pick — it stays in `statusTypes` for that default lookup, just hidden
+  // from the actual picker lists below.
+  const pickableStatusTypes = useMemo(
+    () => statusTypes.filter((s) => s.key !== "off"),
+    [statusTypes]
+  );
+
   function selectRange(from: string, to: string) {
     const i = flatDays.indexOf(from);
     const j = flatDays.indexOf(to);
@@ -222,15 +230,15 @@ export function MonthCalendar({
     function handleKeyDown(e: KeyboardEvent) {
       if (selection.size === 0) return;
       const n = Number(e.key);
-      if (n >= 1 && n <= statusTypes.length) {
-        const status = statusTypes[n - 1];
+      if (n >= 1 && n <= pickableStatusTypes.length) {
+        const status = pickableStatusTypes[n - 1];
         if (!status.allows_comment) applyToSelection(status, null);
       }
     }
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selection, statusTypes]);
+  }, [selection, pickableStatusTypes]);
 
   const openHalfStatus = openHalf
     ? localSchedule[openHalf.date]?.[openHalf.period]?.statusType ??
@@ -250,7 +258,7 @@ export function MonthCalendar({
               Cancel
             </Button>
           </div>
-          <StatusPickerContent statusTypes={statusTypes} onPick={applyToSelection} />
+          <StatusPickerContent statusTypes={pickableStatusTypes} onPick={applyToSelection} />
         </div>
       )}
 
@@ -306,7 +314,7 @@ export function MonthCalendar({
           period={openHalf.period}
           status={openHalfStatus}
           comment={openHalfComment ?? null}
-          statusTypes={statusTypes}
+          statusTypes={pickableStatusTypes}
           onPick={(status, comment) => {
             applyToHalf(openHalf.date, openHalf.period, status, comment);
             setOpenHalf(null);
