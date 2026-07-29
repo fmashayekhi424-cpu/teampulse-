@@ -205,7 +205,21 @@ export function MonthCalendar({
 
   return (
     <div className="flex flex-col gap-4">
-      {lastAction && (
+      {selection.size > 0 && (
+        <div className="flex flex-col gap-2 rounded-lg border bg-card p-2 shadow-sm">
+          <div className="flex items-center justify-between px-1">
+            <span className="text-sm text-muted-foreground">
+              {selection.size} day{selection.size > 1 ? "s" : ""} selected
+            </span>
+            <Button variant="ghost" size="sm" onClick={() => setSelection(new Set())}>
+              Cancel
+            </Button>
+          </div>
+          <StatusPickerContent statusTypes={statusTypes} onPick={applyToSelection} />
+        </div>
+      )}
+
+      {lastAction && selection.size === 0 && (
         <div className="flex justify-end">
           <Button variant="ghost" size="sm" onClick={handleUndo}>
             Undo last change
@@ -233,15 +247,11 @@ export function MonthCalendar({
                 inCurrentMonth={date.slice(0, 7) === currentMonthLabel}
                 isToday={date === todayISO}
                 isSelected={selection.has(date)}
-                showSelectionPicker={!dragging && selection.size > 0 && date === anchor}
                 day={localSchedule[date]}
                 statusTypes={statusTypes}
                 onStart={() => handleStart(date)}
                 onEnter={() => handleEnter(date)}
-                onCloseSelectionPicker={() => setSelection(new Set())}
-                onApplyToSelection={applyToSelection}
                 onApplyToHalf={applyToHalf}
-                selectionSize={selection.size}
               />
             ))}
           </div>
@@ -256,29 +266,21 @@ function DayCell({
   inCurrentMonth,
   isToday,
   isSelected,
-  showSelectionPicker,
   day,
   statusTypes,
   onStart,
   onEnter,
-  onCloseSelectionPicker,
-  onApplyToSelection,
   onApplyToHalf,
-  selectionSize,
 }: {
   date: string;
   inCurrentMonth: boolean;
   isToday: boolean;
   isSelected: boolean;
-  showSelectionPicker: boolean;
   day: DaySchedule | undefined;
   statusTypes: StatusType[];
   onStart: () => void;
   onEnter: () => void;
-  onCloseSelectionPicker: () => void;
-  onApplyToSelection: (status: StatusType, comment: string | null) => void;
   onApplyToHalf: (date: string, period: Period, status: StatusType, comment: string | null) => void;
-  selectionSize: number;
 }) {
   const dayNumber = Number(date.slice(8, 10));
   const defaultStatus = findDefaultStatus(statusTypes, date);
@@ -295,34 +297,14 @@ function DayCell({
         isSelected ? "ring-2 ring-primary" : "ring-1 ring-border"
       )}
     >
-      <Popover
-        open={showSelectionPicker}
-        onOpenChange={(open) => {
-          if (!open) onCloseSelectionPicker();
-        }}
+      <span
+        className={cn(
+          "px-1.5 pt-1 text-xs sm:px-2",
+          isToday && "flex size-5 items-center justify-center rounded-full bg-primary font-semibold text-primary-foreground"
+        )}
       >
-        <PopoverTrigger
-          render={
-            <span
-              className={cn(
-                "px-1.5 pt-1 text-xs sm:px-2",
-                isToday && "flex size-5 items-center justify-center rounded-full bg-primary font-semibold text-primary-foreground"
-              )}
-            >
-              {dayNumber}
-            </span>
-          }
-        />
-        <PopoverContent className="w-48 p-1" align="start">
-          <p className="px-2 py-1 text-xs text-muted-foreground">
-            {selectionSize} day{selectionSize > 1 ? "s" : ""} selected
-          </p>
-          <StatusPickerContent
-            statusTypes={statusTypes}
-            onPick={(status, comment) => onApplyToSelection(status, comment)}
-          />
-        </PopoverContent>
-      </Popover>
+        {dayNumber}
+      </span>
       <div className="flex flex-1 flex-col divide-y divide-border/70">
         <HalfSlot
           date={date}
