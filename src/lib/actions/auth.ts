@@ -3,7 +3,6 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { sendEmail } from "@/lib/email";
 
 export async function signOut() {
   const supabase = await createClient();
@@ -11,93 +10,69 @@ export async function signOut() {
   redirect("/login");
 }
 
-export type RequestLoginCodeResult =
-  | { status: "sent" }
-  | { status: "new_member_required" }
+export type SignInResult =
+  | { status: "ok" }
   | { status: "invalid_passcode" }
   | { status: "error"; message: string };
 
-// Temporary: describes *any* thrown/returned error in detail so we can see
-// exactly what's failing directly in the UI, without needing paid log access.
 function describeError(err: unknown): string {
-  if (err && typeof err === "object") {
-    const e = err as Record<string, unknown>;
-    const parts = [
-      e.name ? `name=${String(e.name)}` : null,
-      e.status !== undefined ? `status=${String(e.status)}` : null,
-      e.code ? `code=${String(e.code)}` : null,
-      e.message ? `message=${String(e.message)}` : null,
-    ].filter(Boolean);
-    if (parts.length > 0) return parts.join(" ");
-    try {
-      return `no enumerable props; keys=${JSON.stringify(Object.getOwnPropertyNames(e))}`;
-    } catch {
-      return "non-serializable error object";
-    }
+  if (err && typeof err === "object" && "message" in err) {
+    return String((err as { message: unknown }).message);
   }
-  return `non-object thrown: ${String(err)} (typeof ${typeof err})`;
+  return "Something went wrong. Please try again.";
+}
+
+/** Turns a display name into a stable, deterministic account key. */
+function slugifyName(name: string): string {
+  return name
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/(^-|-$)/g, "");
 }
 
 /**
- * Existing teammates just need their email — this sends the sign-in code
- * straight away, via Supabase's own signInWithOtp (reliable for accounts
- * that have received at least one email before).
+ * Signs someone in using only their name and the lab's shared passcode — no
+ * email verification at all. Supabase's account system still needs some
+ * email value, so one is derived deterministically from the name and never
+ * actually used to send mail; the account is created pre-confirmed via the
+ * Admin API and a session is minted directly on the server (generateLink +
+ * verifyOtp back to back), so the user is never shown a code to type.
  *
- * A brand-new email additionally needs the lab's shared invite passcode
- * (checked server-side, never shipped to the client) plus a name.
- *
- * New accounts are created via the Admin API (pre-confirmed, no email sent),
- * and their login code is generated via generateLink + emailed through
- * Resend directly — NOT via signInWithOtp. Confirmed via direct API testing
- * that Supabase's own send-on-create path 500s ("Error sending magic link
- * email") for any account that has never received an email before, whenever
- * custom SMTP is enabled; disabling custom SMTP makes it work, so this is a
- * platform-level bug in Supabase's SMTP integration, not something fixable
- * from our side. Sending the first email ourselves sidesteps it entirely.
+ * The name is the only per-person identifier — typing the same name again
+ * returns to the same account. There's no secret beyond the shared passcode,
+ * which is a deliberate simplicity trade-off for this single-team app.
  */
-export async function requestLoginCode(input: {
-  email: string;
-  fullName?: string;
-  passcode?: string;
-}): Promise<RequestLoginCodeResult> {
+export async function signInWithNameAndPasscode(input: {
+  fullName: string;
+  passcode: string;
+}): Promise<SignInResult> {
   try {
-    const supabase = await createClient();
-    const email = input.email.trim();
-
-    const { error: existingUserError } = await supabase.auth.signInWithOtp({
-      email,
-      options: { shouldCreateUser: false },
-    });
-
-    if (!existingUserError) return { status: "sent" };
-
-    const fullName = input.fullName?.trim();
-    if (!fullName || !input.passcode) {
-      return { status: "new_member_required" };
-    }
+    const fullName = input.fullName.trim();
+    if (!fullName) return { status: "error", message: "Please enter your name." };
 
     if (input.passcode !== process.env.TEAM_INVITE_PASSCODE) {
       return { status: "invalid_passcode" };
     }
 
+    const slug = slugifyName(fullName);
+    if (!slug) return { status: "error", message: "Please enter a valid name." };
+    const email = `${slug}@visualoptics.local`;
+
     const admin = createAdminClient();
+
     const { error: createError } = await admin.auth.admin.createUser({
       email,
       email_confirm: true,
       user_metadata: { full_name: fullName },
     });
 
-    // "already been registered" can happen on a double-submit or a retry
-    // after a partial earlier failure — treat it as success and just send
-    // the code, same as any other existing user.
     const alreadyExists =
       createError &&
-      /already.*regista?ered|already exists/i.test(createError.message ?? "");
+      /already.*regist(?:er)?ed|already exists/i.test(createError.message ?? "");
 
     if (createError && !alreadyExists) {
-      const detail = describeError(createError);
-      console.error("requestLoginCode: admin createUser failed —", detail);
-      return { status: "error", message: `Create failed: ${detail}` };
+      return { status: "error", message: describeError(createError) };
     }
 
     const { data: linkData, error: linkError } = await admin.auth.admin.generateLink({
@@ -106,21 +81,22 @@ export async function requestLoginCode(input: {
     });
 
     if (linkError || !linkData) {
-      const detail = describeError(linkError);
-      console.error("requestLoginCode: generateLink failed —", detail);
-      return { status: "error", message: `Code generation failed: ${detail}` };
+      return { status: "error", message: describeError(linkError) };
     }
 
-    await sendEmail({
-      to: email,
-      subject: "Your TeamPulse sign-in code",
-      html: `<p>Enter this code to finish joining Visual Optics:</p><p style="font-size:24px;font-weight:bold;letter-spacing:2px;">${linkData.properties.email_otp}</p>`,
+    const supabase = await createClient();
+    const { error: verifyError } = await supabase.auth.verifyOtp({
+      email,
+      token: linkData.properties.email_otp,
+      type: "email",
     });
 
-    return { status: "sent" };
+    if (verifyError) {
+      return { status: "error", message: describeError(verifyError) };
+    }
+
+    return { status: "ok" };
   } catch (err) {
-    const detail = describeError(err);
-    console.error("requestLoginCode: unexpected error —", detail);
-    return { status: "error", message: `Unexpected: ${detail}` };
+    return { status: "error", message: describeError(err) };
   }
 }

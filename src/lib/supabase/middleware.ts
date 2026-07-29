@@ -35,8 +35,7 @@ export async function updateSession(request: NextRequest) {
   // always see a valid session (they cannot write cookies themselves).
   const { data: { user } } = await supabase.auth.getUser();
 
-  const isAuthRoute = request.nextUrl.pathname.startsWith("/login") ||
-    request.nextUrl.pathname.startsWith("/auth");
+  const isAuthRoute = request.nextUrl.pathname.startsWith("/login");
 
   if (!user && !isAuthRoute) {
     const url = request.nextUrl.clone();
