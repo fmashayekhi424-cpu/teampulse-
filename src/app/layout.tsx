@@ -18,6 +18,15 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "TeamPulse",
   description: "Visual Optics Lab — see where everyone is, at a glance.",
+  appleWebApp: {
+    capable: true,
+    title: "TeamPulse",
+    statusBarStyle: "default",
+  },
+};
+
+export const viewport = {
+  themeColor: "#4f46e5",
 };
 
 export default function RootLayout({
