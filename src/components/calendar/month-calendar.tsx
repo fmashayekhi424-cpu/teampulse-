@@ -1,18 +1,20 @@
 "use client";
 
-import { useEffect, useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { cn } from "@/lib/utils";
 import { setSchedule } from "@/lib/actions/schedule";
 import { isNaturalDefault, findDefaultStatus } from "@/lib/schedule-defaults";
 import { getWeekNumber, parseISODate } from "@/lib/date";
 import type { StatusType } from "@/lib/types/database";
 import type { DaySchedule, Period, UserSchedule } from "@/lib/data/schedule";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Button } from "@/components/ui/button";
 import { StatusPickerContent } from "@/components/calendar/status-picker-content";
 
 type Snapshot = Record<string, DaySchedule>;
 type LastAction = { dates: string[]; previous: Snapshot };
+type OpenHalf = { date: string; period: Period; rect: DOMRect };
+
+const PANEL_WIDTH = 192; // matches w-48
 
 export function MonthCalendar({
   weeks,
@@ -33,6 +35,14 @@ export function MonthCalendar({
   const [anchor, setAnchor] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
   const [lastAction, setLastAction] = useState<LastAction | null>(null);
+
+  // A single shared floating panel for half-day picking, instead of one
+  // popover per half-slot. Many independent popover instances fought each
+  // other: dismissing the currently-open one on an "outside" tap consumed
+  // that tap instead of also letting it open a different trigger, forcing a
+  // double-tap to switch between halves. One piece of state that any
+  // trigger can overwrite directly sidesteps that entirely.
+  const [openHalf, setOpenHalf] = useState<OpenHalf | null>(null);
 
   const flatDays = useMemo(() => weeks.flat(), [weeks]);
 
@@ -92,6 +102,21 @@ export function MonthCalendar({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dragging, anchor]);
+
+  // Dismiss the half-day panel on an outside tap — but not on a tap that
+  // landed on some OTHER trigger, since that trigger's own click handler
+  // already knows to open itself; closing here too would just re-close it.
+  useEffect(() => {
+    if (!openHalf) return;
+    function handlePointerDown(e: PointerEvent) {
+      const target = e.target;
+      if (!(target instanceof Element)) return;
+      if (target.closest("[data-half-trigger]") || target.closest("[data-half-panel]")) return;
+      setOpenHalf(null);
+    }
+    document.addEventListener("pointerdown", handlePointerDown);
+    return () => document.removeEventListener("pointerdown", handlePointerDown);
+  }, [openHalf]);
 
   function snapshotFor(dates: string[]): Snapshot {
     const snap: Snapshot = {};
@@ -207,6 +232,12 @@ export function MonthCalendar({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selection, statusTypes]);
 
+  const openHalfStatus = openHalf
+    ? localSchedule[openHalf.date]?.[openHalf.period]?.statusType ??
+      findDefaultStatus(statusTypes, openHalf.date)
+    : undefined;
+  const openHalfComment = openHalf ? localSchedule[openHalf.date]?.[openHalf.period]?.comment : null;
+
   return (
     <div className="flex flex-col gap-4">
       {!dragging && selection.size > 0 && (
@@ -255,12 +286,74 @@ export function MonthCalendar({
                 statusTypes={statusTypes}
                 onStart={() => handleStart(date)}
                 onEnter={() => handleEnter(date)}
-                onApplyToHalf={applyToHalf}
+                openHalf={openHalf}
+                onToggleHalf={(period, rect) =>
+                  setOpenHalf((prev) =>
+                    prev && prev.date === date && prev.period === period
+                      ? null
+                      : { date, period, rect }
+                  )
+                }
               />
             ))}
           </div>
         ))}
       </div>
+
+      {openHalf && (
+        <HalfPickerPanel
+          rect={openHalf.rect}
+          period={openHalf.period}
+          status={openHalfStatus}
+          comment={openHalfComment ?? null}
+          statusTypes={statusTypes}
+          onPick={(status, comment) => {
+            applyToHalf(openHalf.date, openHalf.period, status, comment);
+            setOpenHalf(null);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+function HalfPickerPanel({
+  rect,
+  period,
+  status,
+  comment,
+  statusTypes,
+  onPick,
+}: {
+  rect: DOMRect;
+  period: Period;
+  status: StatusType | undefined;
+  comment: string | null;
+  statusTypes: StatusType[];
+  onPick: (status: StatusType, comment: string | null) => void;
+}) {
+  const left = Math.max(8, Math.min(rect.left, window.innerWidth - PANEL_WIDTH - 8));
+  const spaceBelow = window.innerHeight - rect.bottom;
+  const openUpward = spaceBelow < 220;
+  const style: React.CSSProperties = {
+    position: "fixed",
+    left,
+    width: PANEL_WIDTH,
+    zIndex: 50,
+    ...(openUpward ? { bottom: window.innerHeight - rect.top + 4 } : { top: rect.bottom + 4 }),
+  };
+
+  return (
+    <div
+      data-half-panel
+      style={style}
+      className="rounded-lg border bg-popover p-1 text-popover-foreground shadow-md"
+    >
+      <p className="px-2 py-1 text-xs text-muted-foreground capitalize">
+        {period} — {status?.label ?? ""}
+        {comment ? ` — ${comment}` : ""}
+      </p>
+      <StatusPickerContent statusTypes={statusTypes} currentStatusKey={status?.key} onPick={onPick} />
     </div>
   );
 }
@@ -274,7 +367,8 @@ function DayCell({
   statusTypes,
   onStart,
   onEnter,
-  onApplyToHalf,
+  openHalf,
+  onToggleHalf,
 }: {
   date: string;
   inCurrentMonth: boolean;
@@ -284,7 +378,8 @@ function DayCell({
   statusTypes: StatusType[];
   onStart: () => void;
   onEnter: () => void;
-  onApplyToHalf: (date: string, period: Period, status: StatusType, comment: string | null) => void;
+  openHalf: OpenHalf | null;
+  onToggleHalf: (period: Period, rect: DOMRect) => void;
 }) {
   const dayNumber = Number(date.slice(8, 10));
   const defaultStatus = findDefaultStatus(statusTypes, date);
@@ -327,16 +422,16 @@ function DayCell({
           period="morning"
           half={day?.morning}
           defaultStatus={defaultStatus}
-          statusTypes={statusTypes}
-          onApply={onApplyToHalf}
+          isOpen={openHalf?.date === date && openHalf?.period === "morning"}
+          onToggle={onToggleHalf}
         />
         <HalfSlot
           date={date}
           period="afternoon"
           half={day?.afternoon}
           defaultStatus={defaultStatus}
-          statusTypes={statusTypes}
-          onApply={onApplyToHalf}
+          isOpen={openHalf?.date === date && openHalf?.period === "afternoon"}
+          onToggle={onToggleHalf}
         />
       </div>
     </div>
@@ -344,52 +439,39 @@ function DayCell({
 }
 
 function HalfSlot({
-  date,
   period,
   half,
   defaultStatus,
-  statusTypes,
-  onApply,
+  isOpen,
+  onToggle,
 }: {
   date: string;
   period: Period;
   half: DaySchedule[Period] | undefined;
   defaultStatus: StatusType | undefined;
-  statusTypes: StatusType[];
-  onApply: (date: string, period: Period, status: StatusType, comment: string | null) => void;
+  isOpen: boolean;
+  onToggle: (period: Period, rect: DOMRect) => void;
 }) {
-  const [open, setOpen] = useState(false);
+  const buttonRef = useRef<HTMLButtonElement>(null);
   const status = half?.statusType ?? defaultStatus;
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger
-        render={
-          <button
-            type="button"
-            data-no-drag
-            className="flex min-h-[34px] flex-1 touch-manipulation items-center justify-center text-lg leading-none active:brightness-90 sm:min-h-[40px]"
-            style={{ backgroundColor: status ? `${status.color}26` : undefined }}
-            title={`${period === "morning" ? "Morning" : "Afternoon"}: ${status?.label ?? ""}${half?.comment ? ` — ${half.comment}` : ""}`}
-          >
-            {status?.icon}
-          </button>
-        }
-      />
-      <PopoverContent className="w-48 p-1">
-        <p className="px-2 py-1 text-xs text-muted-foreground capitalize">
-          {period} — {status?.label ?? ""}
-          {half?.comment ? ` — ${half.comment}` : ""}
-        </p>
-        <StatusPickerContent
-          statusTypes={statusTypes}
-          currentStatusKey={status?.key}
-          onPick={(picked, comment) => {
-            onApply(date, period, picked, comment);
-            setOpen(false);
-          }}
-        />
-      </PopoverContent>
-    </Popover>
+    <button
+      ref={buttonRef}
+      type="button"
+      data-no-drag
+      data-half-trigger
+      onClick={() => {
+        if (buttonRef.current) onToggle(period, buttonRef.current.getBoundingClientRect());
+      }}
+      className={cn(
+        "flex min-h-[34px] flex-1 touch-manipulation items-center justify-center text-lg leading-none active:brightness-90 sm:min-h-[40px]",
+        isOpen && "ring-2 ring-inset ring-primary"
+      )}
+      style={{ backgroundColor: status ? `${status.color}26` : undefined }}
+      title={`${period === "morning" ? "Morning" : "Afternoon"}: ${status?.label ?? ""}${half?.comment ? ` — ${half.comment}` : ""}`}
+    >
+      {status?.icon}
+    </button>
   );
 }
