@@ -4,8 +4,12 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { setSchedule } from "@/lib/actions/schedule";
+import { isNaturalDefault } from "@/lib/schedule-defaults";
+import { toISODate } from "@/lib/date";
 import type { StatusType } from "@/lib/types/database";
+import type { Period } from "@/lib/data/schedule";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -13,21 +17,28 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 
+const PERIOD_OPTIONS: { value: Period | "both"; label: string }[] = [
+  { value: "morning", label: "Morning" },
+  { value: "afternoon", label: "Afternoon" },
+  { value: "both", label: "Both" },
+];
+
 export function SetTodayButton({ statusTypes }: { statusTypes: StatusType[] }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [open, setOpen] = useState(false);
+  const [period, setPeriod] = useState<Period | "both">("both");
 
   function handleSelect(status: StatusType) {
-    const today = new Date();
-    const iso = today.toISOString().slice(0, 10);
+    const iso = toISODate(new Date());
     startTransition(async () => {
       await setSchedule({
         dates: [iso],
-        period: "both",
-        statusTypeId: status.key === "office" ? null : status.id,
+        period,
+        statusTypeId: isNaturalDefault(status, iso) ? null : status.id,
       });
-      toast.success(`Today set to ${status.label}`);
+      const when = period === "both" ? "Today" : `This ${period}`;
+      toast.success(`${when} set to ${status.label}`);
       router.refresh();
     });
     setOpen(false);
@@ -42,7 +53,27 @@ export function SetTodayButton({ statusTypes }: { statusTypes: StatusType[] }) {
           </Button>
         }
       />
-      <DropdownMenuContent align="end">
+      <DropdownMenuContent align="end" className="w-56">
+        <div className="mb-1 flex gap-1 px-1 pt-1">
+          {PERIOD_OPTIONS.map((opt) => (
+            <button
+              key={opt.value}
+              type="button"
+              onClick={(e) => {
+                e.preventDefault();
+                setPeriod(opt.value);
+              }}
+              className={cn(
+                "flex-1 rounded-md px-2 py-1 text-xs font-medium transition-colors",
+                period === opt.value
+                  ? "bg-primary text-primary-foreground"
+                  : "bg-muted text-muted-foreground hover:bg-muted/70"
+              )}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
         {statusTypes.map((status) => (
           <DropdownMenuItem key={status.id} onClick={() => handleSelect(status)}>
             <span>{status.icon}</span> {status.label}

@@ -3,6 +3,9 @@ import {
   endOfMonth,
   startOfWeek,
   endOfWeek,
+  startOfISOWeek,
+  endOfISOWeek,
+  getISOWeek,
   eachDayOfInterval,
   addMonths,
   addWeeks,
@@ -34,11 +37,18 @@ export function getMonthGridWeeks(monthDate: Date): string[][] {
   return weeks;
 }
 
-/** The Monday-Sunday dates of the week containing `weekDate`. */
+/** The Monday-Sunday dates of the ISO week containing `weekDate` — matches
+ * the Swedish calendar's week numbering (week 1 = the week with the year's
+ * first Thursday). */
 export function getWeekDates(weekDate: Date): string[] {
-  const start = startOfWeek(weekDate, { weekStartsOn: WEEK_STARTS_ON });
-  const end = endOfWeek(weekDate, { weekStartsOn: WEEK_STARTS_ON });
+  const start = startOfISOWeek(weekDate);
+  const end = endOfISOWeek(weekDate);
   return eachDayOfInterval({ start, end }).map(toISODate);
+}
+
+/** The ISO week number (1-53) for the week containing `weekDate`. */
+export function getWeekNumber(weekDate: Date): number {
+  return getISOWeek(weekDate);
 }
 
 export function shiftMonth(monthDate: Date, delta: number): Date {

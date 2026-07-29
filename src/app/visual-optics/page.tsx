@@ -5,7 +5,7 @@ import { getCurrentProfile } from "@/lib/data/profile";
 import { getStatusTypes } from "@/lib/data/status-types";
 import { getTeamMembers } from "@/lib/data/team";
 import { getTeamSchedule } from "@/lib/data/schedule";
-import { getWeekDates, shiftWeek, toISODate } from "@/lib/date";
+import { getWeekDates, getWeekNumber, shiftWeek, toISODate } from "@/lib/date";
 import { TeamGrid } from "@/components/team/team-grid";
 import { RealtimeRefresher } from "@/components/team/realtime-refresher";
 import { Button } from "@/components/ui/button";
@@ -21,9 +21,8 @@ export default async function TeamOverviewPage({
   const { week } = await searchParams;
   const weekDate = week ? parseISO(week) : new Date();
 
-  // Weekdays only — most labs don't track weekends, and there's no admin
-  // settings UI (single-team app) to make this configurable.
-  const weekDates = getWeekDates(weekDate).slice(0, 5);
+  // All 7 days — weekends now default to Day Off rather than being hidden.
+  const weekDates = getWeekDates(weekDate);
 
   const [statusTypes, members, schedule] = await Promise.all([
     getStatusTypes(profile.team_id),
@@ -39,7 +38,8 @@ export default async function TeamOverviewPage({
       <RealtimeRefresher />
       <div className="flex items-center justify-between">
         <h1 className="text-lg font-semibold">
-          Week of {format(parseISO(weekDates[0]), "d MMMM yyyy")}
+          Week {getWeekNumber(weekDate)} ({format(parseISO(weekDates[0]), "d MMMM")} –{" "}
+          {format(parseISO(weekDates[weekDates.length - 1]), "d MMMM")})
         </h1>
         <div className="flex items-center gap-1">
           <Button

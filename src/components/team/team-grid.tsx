@@ -1,6 +1,7 @@
 import { format, parseISO } from "date-fns";
 import type { Profile, StatusType } from "@/lib/types/database";
 import type { DaySchedule, Period, UserSchedule } from "@/lib/data/schedule";
+import { findDefaultStatus } from "@/lib/schedule-defaults";
 import { cn } from "@/lib/utils";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -18,8 +19,6 @@ export function TeamGrid({
   schedule: Record<string, UserSchedule>;
   statusTypes: StatusType[];
 }) {
-  const officeStatus = statusTypes.find((s) => s.key === "office");
-
   return (
     <div className="overflow-x-auto rounded-lg border">
       <table className="w-full min-w-[640px] border-collapse text-sm">
@@ -57,7 +56,7 @@ export function TeamGrid({
                 <td key={date} className="p-1 text-center">
                   <GridCell
                     day={schedule[member.id]?.[date]}
-                    officeStatus={officeStatus}
+                    defaultStatus={findDefaultStatus(statusTypes, date)}
                     isToday={date === todayISO}
                   />
                 </td>
@@ -72,11 +71,11 @@ export function TeamGrid({
 
 function GridCell({
   day,
-  officeStatus,
+  defaultStatus,
   isToday,
 }: {
   day: DaySchedule | undefined;
-  officeStatus: StatusType | undefined;
+  defaultStatus: StatusType | undefined;
   isToday: boolean;
 }) {
   return (
@@ -86,22 +85,22 @@ function GridCell({
         isToday ? "ring-2 ring-primary" : "ring-1 ring-border"
       )}
     >
-      <HalfSwatch half={day?.morning} officeStatus={officeStatus} period="morning" />
-      <HalfSwatch half={day?.afternoon} officeStatus={officeStatus} period="afternoon" />
+      <HalfSwatch half={day?.morning} defaultStatus={defaultStatus} period="morning" />
+      <HalfSwatch half={day?.afternoon} defaultStatus={defaultStatus} period="afternoon" />
     </div>
   );
 }
 
 function HalfSwatch({
   half,
-  officeStatus,
+  defaultStatus,
   period,
 }: {
   half: DaySchedule[Period] | undefined;
-  officeStatus: StatusType | undefined;
+  defaultStatus: StatusType | undefined;
   period: Period;
 }) {
-  const status = half?.statusType ?? officeStatus;
+  const status = half?.statusType ?? defaultStatus;
 
   const swatch = (
     <div
@@ -116,7 +115,7 @@ function HalfSwatch({
     <Tooltip>
       <TooltipTrigger render={swatch} />
       <TooltipContent className="capitalize">
-        {period} — {status?.label ?? "Office"}
+        {period} — {status?.label ?? ""}
         {half?.comment ? ` — ${half.comment}` : ""}
       </TooltipContent>
     </Tooltip>
