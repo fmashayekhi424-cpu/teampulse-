@@ -84,9 +84,11 @@ export function MonthCalendar({
     }
     window.addEventListener("touchmove", handleTouchMove, { passive: false });
     window.addEventListener("touchend", endDrag);
+    window.addEventListener("touchcancel", endDrag);
     return () => {
       window.removeEventListener("touchmove", handleTouchMove);
       window.removeEventListener("touchend", endDrag);
+      window.removeEventListener("touchcancel", endDrag);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dragging, anchor]);
@@ -207,7 +209,7 @@ export function MonthCalendar({
 
   return (
     <div className="flex flex-col gap-4">
-      {selection.size > 0 && (
+      {!dragging && selection.size > 0 && (
         <div className="flex flex-col gap-2 rounded-lg border bg-card p-2 shadow-sm">
           <div className="flex items-center justify-between px-1">
             <span className="text-sm text-muted-foreground">
